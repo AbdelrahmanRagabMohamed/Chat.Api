@@ -3,13 +3,13 @@ using ChatApi.Data;
 using ChatApi.Hubs;
 using ChatApi.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace ChatApi.Controllers;
-
 
 [Authorize]
 [ApiController]
@@ -18,12 +18,16 @@ public class MessagesController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IHubContext<ChatHub> _hubContext;
+    private readonly UserManager<User> _userManager; // أضفنا UserManager عشان نستخدمه في GetOrCreateConversation
 
-    public MessagesController(AppDbContext context, IHubContext<ChatHub> hubContext)
+    public MessagesController(AppDbContext context, IHubContext<ChatHub> hubContext, UserManager<User> userManager)
     {
         _context = context;
         _hubContext = hubContext;
+        _userManager = userManager;
     }
+
+
 
     /// Send New Message
     /// POST => baseUrl/api/Messages/send
@@ -32,11 +36,16 @@ public class MessagesController : ControllerBase
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
 
-        var conversation = await _context.Conversations
-            .FirstOrDefaultAsync(c => c.Id == dto.ConversationId && (c.User1Id == userId || c.User2Id == userId));
-
-        if (conversation == null)
-            return NotFound("Conversation not found or you don't have access to it.");
+        // جلب أو إنشاء المحادثة
+        Conversation conversation;
+        try
+        {
+            conversation = await GetOrCreateConversation(userId, dto.ReceiverId);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
 
@@ -46,7 +55,7 @@ public class MessagesController : ControllerBase
 
         var message = new Message
         {
-            ConversationId = dto.ConversationId,
+            ConversationId = conversation.Id,
             SenderId = userId,
             ReceiverId = otherUserId,
             Content = dto.Content,
@@ -71,7 +80,7 @@ public class MessagesController : ControllerBase
             IsSeen = message.IsSeen
         });
 
-        // اشعار انه جاتله رساله
+        // إشعار انه جاتله رسالة
         await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("NewMessageNotification", sender.UserName, dto.Content);
 
         return Ok(new MessageResponseDto
@@ -79,14 +88,12 @@ public class MessagesController : ControllerBase
             Id = message.Id,
             ConversationId = message.ConversationId,
             SenderId = message.SenderId,
-            Sender = new UserResponseDto { Id = sender.Id, UserName = sender.UserName, Email = sender.Email }, // تأكيد بيانات Sender
+            Sender = new UserResponseDto { Id = sender.Id, UserName = sender.UserName, Email = sender.Email },
             ReceiverId = message.ReceiverId,
-            Receiver = new UserResponseDto { Id = receiver.Id, UserName = receiver.UserName, Email = receiver.Email }, // إضافة بيانات Receiver
+            Receiver = new UserResponseDto { Id = receiver.Id, UserName = receiver.UserName, Email = receiver.Email },
             Content = message.Content,
             SentAt = message.SentAt,
-            //Email = receiver.Email,
             IsSeen = message.IsSeen
-
         });
     }
 
@@ -95,7 +102,7 @@ public class MessagesController : ControllerBase
     [HttpPut("edit/{messageId}")]
     public async Task<IActionResult> EditMessage(int messageId, [FromBody] EditMessageDto dto)
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+        int userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
 
         var message = await _context.Messages
             .Include(m => m.Conversation)
@@ -112,8 +119,9 @@ public class MessagesController : ControllerBase
         await _context.SaveChangesAsync();
 
         var sender = await _context.Users.FindAsync(userId);
-
         var otherUserId = message.Conversation.User1Id == userId ? message.Conversation.User2Id : message.Conversation.User1Id;
+        var receiver = await _context.Users.FindAsync(otherUserId);
+
         await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("MessageEdited", message.Id, dto.Content);
 
         return Ok(new MessageResponseDto
@@ -121,9 +129,20 @@ public class MessagesController : ControllerBase
             Id = message.Id,
             ConversationId = message.ConversationId,
             SenderId = message.SenderId,
-            Sender = new UserResponseDto { Id = sender.Id, UserName = sender.UserName },
+            Sender = new UserResponseDto
+            {
+                Id = sender.Id,
+                UserName = sender.UserName,
+                Email = sender.Email
+            },
             Content = message.Content,
-            SentAt = message.SentAt
+            SentAt = message.SentAt,
+            Receiver = new UserResponseDto
+            {
+                Id = receiver.Id,
+                UserName = receiver.UserName,
+                Email = receiver.Email
+            }
         });
     }
 
@@ -167,7 +186,6 @@ public class MessagesController : ControllerBase
         if (message == null)
             return NotFound("Message not found.");
 
-        // التأكد إن المستخدم هو المرسل بتاع الرسالة
         if (message.SenderId != userId)
             return Unauthorized("You are not authorized to check the status of this message.");
 
@@ -182,5 +200,53 @@ public class MessagesController : ControllerBase
                 : "كده هو لسه مشافش المسدج , شيل العلامة الزرقاء يا هشام يا علي"
         });
     }
+
+
+    //------------------------------------------//
+
+
+    // الفانكشن اهي يا نادي //
+    /// بتجيب او بتعمل محادثة جديد 
+    /// بتاخد senderId و receiverId
+    /// وبتشيك لو المحادثة موجودة ولا لا
+    /// لو المحادثة موجودة بتجيبها
+    /// لو المحادثة مش موجودة بتعمل محادثة جديدة وبتضيفها في الداتا بيز  وبترجع المحادثة
+
+    private async Task<Conversation> GetOrCreateConversation(int senderId, int receiverId)
+    {
+        // التحقق من وجود المستخدم الآخر
+        var receiver = await _userManager.FindByIdAsync(receiverId.ToString());
+        if (receiver == null)
+            throw new Exception("Receiver does not exist.");
+
+        // التحقق من أن المستخدمين مختلفين
+        if (senderId == receiverId)
+            throw new Exception("Cannot start a conversation with yourself.");
+
+        // التحقق من وجود المحادثة مسبقاً
+        var existingConversation = await _context.Conversations
+            .FirstOrDefaultAsync(c =>
+                (c.User1Id == senderId && c.User2Id == receiverId) ||
+                (c.User1Id == receiverId && c.User2Id == senderId));
+
+        if (existingConversation != null)
+            return existingConversation;
+
+        // إنشاء محادثة جديدة لو مفيش محادثة موجودة
+        var conversation = new Conversation
+        {
+            User1Id = senderId,
+            User2Id = receiverId,
+            CreatedAt = DateTime.UtcNow,
+            IsDeleted_ForUser_1 = false,
+            IsDeleted_ForUser_2 = false
+        };
+
+        _context.Conversations.Add(conversation);
+        await _context.SaveChangesAsync();
+
+        return conversation;
+    }
+
 
 }

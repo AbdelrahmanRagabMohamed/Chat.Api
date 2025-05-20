@@ -42,6 +42,14 @@ namespace ChatApi.Data
                 .WithMany()
                 .HasForeignKey(c => c.User2Id)
                 .OnDelete(DeleteBehavior.NoAction); // لو المستخدم اتمسح، المحادثة مش هتتمسح
+
+
+            modelBuilder.Entity<Conversation>() // ده مهم عشان الرسايل تتمسح تلقائيًا لما المحادثة تتمسح
+            .HasMany(c => c.Messages)
+            .WithOne(m => m.Conversation)
+            .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+            // لو المحادثة اتمسحت، الرسايل هتتمسح كمان
         }
     }
 }

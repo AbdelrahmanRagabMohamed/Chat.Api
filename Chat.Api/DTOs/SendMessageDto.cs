@@ -1,6 +1,8 @@
-﻿namespace Chat.Api.DTOs;
-public class SendMessageDto
+﻿namespace Chat.Api.DTOs
 {
-    public int ConversationId { get; set; }
-    public string Content { get; set; }
+    public class SendMessageDto
+    {
+        public int ReceiverId { get; set; } // بدل ConversationId
+        public string Content { get; set; }
+    }
 }

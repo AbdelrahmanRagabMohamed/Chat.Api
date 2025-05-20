@@ -10,6 +10,7 @@ using System.Security.Claims;
 
 namespace ChatApi.Controllers;
 
+
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]

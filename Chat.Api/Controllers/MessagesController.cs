@@ -197,6 +197,7 @@ public class MessagesController : ControllerBase
         });
     }
 
+
     private async Task<Conversation> GetOrCreateConversation(int senderId, int receiverId)
     {
         var receiver = await _userManager.FindByIdAsync(receiverId.ToString());

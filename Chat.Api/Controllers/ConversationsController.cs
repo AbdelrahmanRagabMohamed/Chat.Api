@@ -55,8 +55,8 @@ namespace ChatApi.Controllers
             var response = conversations.Select(c => new ConversationResponseDto
             {
                 Id = c.Id,
-                ReceiverId = c.ReceiverId,
-                ReceiverName = c.ReceiverName,
+                OtherUserId = c.ReceiverId,
+                OtherUserName = c.ReceiverName,
                 OtherUserProfileImage = c.ReceiverProfileImage,
                 LastMessage = c.LastMessage != null
                     ? new LastMessageDto
@@ -124,9 +124,9 @@ namespace ChatApi.Controllers
             return Ok(new OpenConversationResponseDto
             {
                 ConversationId = conversation.Id,
-                ReceiverId = otherUserId,
-                ReceiverName = otherUser.UserName,
-                ReceiverImage = otherUser.Image,
+                OtherUserId = otherUserId,
+                OtherUserName = otherUser.UserName,
+                OtherUserImage = otherUser.Image,
                 Messages = messages
             });
         }
@@ -206,9 +206,11 @@ namespace ChatApi.Controllers
                 .Where(m => (m.SenderId == userId || m.ReceiverId == userId) && m.Content.Contains(query))
                 .Include(m => m.Sender)
                 .Include(m => m.Conversation)
-                .Select(m => new MessageResponseDto
+                .Select(m => new SearchResponseDto
                 {
                     Id = m.Id,
+                    ConversationId = m.ConversationId,
+                    OtherUserId = m.SenderId == userId ? m.ReceiverId : m.SenderId,
                     Content = m.Content,
                     SentAt = m.SentAt,
                     IsSent = m.IsSent,

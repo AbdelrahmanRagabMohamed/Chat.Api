@@ -1,14 +1,12 @@
-﻿using ChatApi.Controllers;
-
-namespace Chat.Api.DTOs;
-
-public class ConversationResponseDto
+﻿namespace Chat.Api.DTOs
 {
-    public int Id { get; set; }
-    public int User1Id { get; set; }
-    public UserResponseDto User1 { get; set; }
-    public int User2Id { get; set; }
-    public UserResponseDto User2 { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public ICollection<MessageResponseDto>? Messages { get; set; }
+    public class ConversationResponseDto
+    {
+        public int Id { get; set; }
+        public int ReceiverId { get; set; }
+        public string ReceiverName { get; set; }
+        public string OtherUserProfileImage { get; set; }
+        public LastMessageDto LastMessage { get; set; }
+        public int UnreadCount { get; set; }
+    }
 }

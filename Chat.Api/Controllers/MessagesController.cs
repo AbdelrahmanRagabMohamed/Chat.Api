@@ -18,7 +18,7 @@ public class MessagesController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IHubContext<ChatHub> _hubContext;
-    private readonly UserManager<User> _userManager; // أضفنا UserManager عشان نستخدمه في GetOrCreateConversation
+    private readonly UserManager<User> _userManager;
 
     public MessagesController(AppDbContext context, IHubContext<ChatHub> hubContext, UserManager<User> userManager)
     {
@@ -27,16 +27,11 @@ public class MessagesController : ControllerBase
         _userManager = userManager;
     }
 
-
-
-    /// Send New Message
-    /// POST => baseUrl/api/Messages/send
     [HttpPost("send")]
     public async Task<IActionResult> SendMessage([FromBody] SendMessageDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
 
-        // جلب أو إنشاء المحادثة
         Conversation conversation;
         try
         {
@@ -60,6 +55,8 @@ public class MessagesController : ControllerBase
             ReceiverId = otherUserId,
             Content = dto.Content,
             SentAt = DateTime.UtcNow,
+            IsSent = true,
+            IsReceived = ChatHub.IsUserOnline(otherUserId),
             IsSeen = false
         };
 
@@ -68,37 +65,43 @@ public class MessagesController : ControllerBase
 
         var sender = await _context.Users.FindAsync(userId);
 
-        await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("ReceiveMessage", new
+        if (ChatHub.IsUserOnline(otherUserId))
         {
-            Id = message.Id,
+            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("ReceiveMessage", new
+            {
+                Id = message.Id,
+                ConversationId = message.ConversationId,
+                SenderId = message.SenderId,
+                SenderName = sender.UserName,
+                ReceiverId = otherUserId,
+                Content = message.Content,
+                SentAt = message.SentAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                IsSent = message.IsSent,
+                IsReceived = message.IsReceived,
+                IsSeen = message.IsSeen
+            });
+
+            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("NewMessageNotification", sender.UserName, dto.Content);
+
+            await _hubContext.Clients.Group(userId.ToString()).SendAsync("MessageReceived", message.Id);
+        }
+
+        return Ok(new SendMessageResponseDto
+        {
             ConversationId = message.ConversationId,
             SenderId = message.SenderId,
-            SenderName = sender.UserName,
-            ReceiverId = otherUserId,
-            Content = message.Content,
-            SentAt = message.SentAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            IsSeen = message.IsSeen
-        });
-
-        // إشعار انه جاتله رسالة
-        await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("NewMessageNotification", sender.UserName, dto.Content);
-
-        return Ok(new MessageResponseDto
-        {
-            Id = message.Id,
-            ConversationId = message.ConversationId,
-            SenderId = message.SenderId,
-            Sender = new UserResponseDto { Id = sender.Id, UserName = sender.UserName, Email = sender.Email },
-            ReceiverId = message.ReceiverId,
-            Receiver = new UserResponseDto { Id = receiver.Id, UserName = receiver.UserName, Email = receiver.Email },
-            Content = message.Content,
-            SentAt = message.SentAt,
-            IsSeen = message.IsSeen
+            Message = new MessageResponseDto
+            {
+                Id = message.Id,
+                Content = message.Content,
+                SentAt = message.SentAt,
+                IsSent = message.IsSent,
+                IsReceived = message.IsReceived,
+                IsSeen = message.IsSeen
+            }
         });
     }
 
-    /// Edit Message
-    /// PUT => baseUrl/api/Messages/edit/{messageId}
     [HttpPut("edit/{messageId}")]
     public async Task<IActionResult> EditMessage(int messageId, [FromBody] EditMessageDto dto)
     {
@@ -118,36 +121,24 @@ public class MessagesController : ControllerBase
         message.SentAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        var sender = await _context.Users.FindAsync(userId);
         var otherUserId = message.Conversation.User1Id == userId ? message.Conversation.User2Id : message.Conversation.User1Id;
-        var receiver = await _context.Users.FindAsync(otherUserId);
 
-        await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("MessageEdited", message.Id, dto.Content);
+        if (ChatHub.IsUserOnline(otherUserId))
+        {
+            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("MessageEdited", message.Id, dto.Content);
+        }
 
         return Ok(new MessageResponseDto
         {
             Id = message.Id,
-            ConversationId = message.ConversationId,
-            SenderId = message.SenderId,
-            Sender = new UserResponseDto
-            {
-                Id = sender.Id,
-                UserName = sender.UserName,
-                Email = sender.Email
-            },
             Content = message.Content,
             SentAt = message.SentAt,
-            Receiver = new UserResponseDto
-            {
-                Id = receiver.Id,
-                UserName = receiver.UserName,
-                Email = receiver.Email
-            }
+            IsSent = message.IsSent,
+            IsReceived = message.IsReceived,
+            IsSeen = message.IsSeen
         });
     }
 
-    /// Delete Message
-    /// DELETE => baseUrl/api/Messages/delete/{messageId}
     [HttpDelete("delete/{messageId}")]
     public async Task<IActionResult> DeleteMessage(int messageId)
     {
@@ -167,13 +158,14 @@ public class MessagesController : ControllerBase
         await _context.SaveChangesAsync();
 
         var otherUserId = message.Conversation.User1Id == userId ? message.Conversation.User2Id : message.Conversation.User1Id;
-        await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("MessageDeleted", messageId);
+        if (ChatHub.IsUserOnline(otherUserId))
+        {
+            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("MessageDeleted", messageId);
+        }
 
         return Ok("Message Deleted Successfully");
     }
 
-    /// Check Message Seen Status
-    /// GET => baseUrl/api/Messages/{messageId}/seen-status
     [HttpGet("{messageId}/seen-status")]
     public async Task<IActionResult> GetMessageSeenStatus(int messageId)
     {
@@ -192,38 +184,28 @@ public class MessagesController : ControllerBase
         return Ok(new
         {
             MessageId = message.Id,
+            IsSent = message.IsSent,
+            IsReceived = message.IsReceived,
             IsSeen = message.IsSeen,
             SenderId = message.SenderId,
             ReceiverId = message.ReceiverId,
             StatusMessage = message.IsSeen
                 ? "😉 كده هو شاف المسدج انزل بالعلامة الزرقاء يا هشام يا علي"
-                : "كده هو لسه مشافش المسدج , شيل العلامة الزرقاء يا هشام يا علي"
+                : message.IsReceived
+                    ? "كده هو استلم المسدج بس لسه مشافش، نزل علامتين صح يا هشام يا علي"
+                    : "كده هو لسه ما استلمهاش، نزل علامة صح واحدة يا هشام يا علي"
         });
     }
 
-
-    //------------------------------------------//
-
-
-    // الفانكشن اهي يا نادي //
-    /// بتجيب او بتعمل محادثة جديد 
-    /// بتاخد senderId و receiverId
-    /// وبتشيك لو المحادثة موجودة ولا لا
-    /// لو المحادثة موجودة بتجيبها
-    /// لو المحادثة مش موجودة بتعمل محادثة جديدة وبتضيفها في الداتا بيز  وبترجع المحادثة
-
     private async Task<Conversation> GetOrCreateConversation(int senderId, int receiverId)
     {
-        // التحقق من وجود المستخدم الآخر
         var receiver = await _userManager.FindByIdAsync(receiverId.ToString());
         if (receiver == null)
             throw new Exception("Receiver does not exist.");
 
-        // التحقق من أن المستخدمين مختلفين
         if (senderId == receiverId)
             throw new Exception("Cannot start a conversation with yourself.");
 
-        // التحقق من وجود المحادثة مسبقاً
         var existingConversation = await _context.Conversations
             .FirstOrDefaultAsync(c =>
                 (c.User1Id == senderId && c.User2Id == receiverId) ||
@@ -232,7 +214,6 @@ public class MessagesController : ControllerBase
         if (existingConversation != null)
             return existingConversation;
 
-        // إنشاء محادثة جديدة لو مفيش محادثة موجودة
         var conversation = new Conversation
         {
             User1Id = senderId,
@@ -247,6 +228,5 @@ public class MessagesController : ControllerBase
 
         return conversation;
     }
-
 
 }

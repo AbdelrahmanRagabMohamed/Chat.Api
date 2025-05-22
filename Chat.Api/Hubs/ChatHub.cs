@@ -9,6 +9,8 @@ namespace ChatApi.Hubs;
 [Authorize]
 public class ChatHub : Hub
 {
+    private static readonly Dictionary<int, string> _connectedUsers = new Dictionary<int, string>();
+
     private readonly IHubContext<ChatHub> _hubContext;
     private readonly AppDbContext _context;
 
@@ -20,68 +22,74 @@ public class ChatHub : Hub
 
     public override async Task OnConnectedAsync()
     {
-        var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrEmpty(userId))
+        var userId = int.Parse(Context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+        _connectedUsers[userId] = Context.ConnectionId;
+        await Groups.AddToGroupAsync(Context.ConnectionId, userId.ToString());
+        Console.WriteLine($"User {userId} connected and added to group {userId}");
+
+        // جلب الرسايل المرسلة للمستخدم واللي لسه ما استلمهاش
+        var context = Context.GetHttpContext().RequestServices.GetRequiredService<AppDbContext>();
+        var unreceivedMessages = await context.Messages
+            .Where(m => m.ReceiverId == userId && m.IsSent && !m.IsReceived)
+            .ToListAsync();
+
+        if (unreceivedMessages.Any())
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, userId);
-            Console.WriteLine($"User {userId} connected and added to group {userId}");
-
-            var user = await _context.Users.FindAsync(int.Parse(userId));
-            if (user != null)
+            foreach (var message in unreceivedMessages)
             {
-                user.LastSeen = DateTime.UtcNow;
-                Console.WriteLine($"Attempting to update LastSeen for user {userId} to {user.LastSeen}");
-                try
+                message.IsReceived = true; // تحديث الحالة لـ استلمت
+            }
+            await context.SaveChangesAsync();
+
+            // إبلاغ المرسلين إن الرسايل بتاعتهم استلمت
+            var senderIds = unreceivedMessages.Select(m => m.SenderId).Distinct();
+            foreach (var senderId in senderIds)
+            {
+                if (IsUserOnline(senderId))
                 {
-                    await _context.SaveChangesAsync();
-                    Console.WriteLine($"LastSeen updated successfully for user {userId}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to update LastSeen for user {userId}: {ex.Message}");
+                    var senderMessages = unreceivedMessages
+                        .Where(m => m.SenderId == senderId)
+                        .Select(m => m.Id)
+                        .ToList();
+                    await Clients.Group(senderId.ToString())
+                        .SendAsync("MessagesReceived", senderMessages);
                 }
             }
-            else
-            {
-                Console.WriteLine($"User {userId} not found in the database");
-            }
-
-            await Clients.All.SendAsync("UserStatusChanged", userId, true);
         }
+
+        // إبلاغ المستخدمين الآخرين إن المستخدم ده بقى أونلاين
+        var conversations = await context.Conversations
+            .Where(c => c.User1Id == userId || c.User2Id == userId)
+            .ToListAsync();
+
+        foreach (var conversation in conversations)
+        {
+            var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+            await Clients.Group(otherUserId.ToString()).SendAsync("UserOnline", userId);
+        }
+
         await base.OnConnectedAsync();
     }
 
-
     public override async Task OnDisconnectedAsync(Exception exception)
     {
-        var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrEmpty(userId))
+        var userId = int.Parse(Context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+        _connectedUsers.Remove(userId);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, userId.ToString());
+        Console.WriteLine($"User {userId} disconnected");
+
+        // إبلاغ المستخدمين الآخرين إن المستخدم ده بقى أوفلاين
+        var context = Context.GetHttpContext().RequestServices.GetRequiredService<AppDbContext>();
+        var conversations = await context.Conversations
+            .Where(c => c.User1Id == userId || c.User2Id == userId)
+            .ToListAsync();
+
+        foreach (var conversation in conversations)
         {
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, userId);
-            Console.WriteLine($"User {userId} disconnected and removed from group {userId}");
-
-            var user = await _context.Users.FindAsync(int.Parse(userId));
-            if (user != null)
-            {
-                user.LastSeen = DateTime.UtcNow;
-                Console.WriteLine($"Attempting to update LastSeen for user {userId} to {user.LastSeen}");
-                try
-                {
-                    await _context.SaveChangesAsync();
-                    Console.WriteLine($"LastSeen updated successfully for user {userId}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to update LastSeen for user {userId}: {ex.Message}");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"User {userId} not found in the database");
-            }
-
-            await Clients.All.SendAsync("UserStatusChanged", userId, false);
+            var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+            await Clients.Group(otherUserId.ToString()).SendAsync("UserOffline", userId);
         }
+
         await base.OnDisconnectedAsync(exception);
     }
 
@@ -109,7 +117,10 @@ public class ChatHub : Hub
     }
 
 
-
+    public static bool IsUserOnline(int userId)
+    {
+        return _connectedUsers.ContainsKey(userId);
+    }
     public async Task MarkMessageAsSeen(int messageId)
     {
         var userId = int.Parse(Context.User.FindFirst(ClaimTypes.NameIdentifier).Value);
@@ -128,3 +139,5 @@ public class ChatHub : Hub
         await _hubContext.Clients.Group(message.SenderId.ToString()).SendAsync("MessageSeen", messageId);
     }
 }
+
+

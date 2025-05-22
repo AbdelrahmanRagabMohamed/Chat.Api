@@ -50,6 +50,10 @@ namespace ChatApi.Data
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
             // لو المحادثة اتمسحت، الرسايل هتتمسح كمان
+
+
         }
+
+
     }
 }

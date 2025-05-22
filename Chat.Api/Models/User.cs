@@ -4,6 +4,7 @@ namespace ChatApi.Models
 {
     public class User : IdentityUser<int>
     {
-        public DateTime? LastSeen { get; set; }
+        public string Email { get; set; }
+        public string Image { get; set; } //  الصورة ( URL )
     }
 }

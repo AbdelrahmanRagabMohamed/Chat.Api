@@ -121,6 +121,7 @@ public class ChatHub : Hub
     {
         return _connectedUsers.ContainsKey(userId);
     }
+
     public async Task MarkMessageAsSeen(int messageId)
     {
         var userId = int.Parse(Context.User.FindFirst(ClaimTypes.NameIdentifier).Value);

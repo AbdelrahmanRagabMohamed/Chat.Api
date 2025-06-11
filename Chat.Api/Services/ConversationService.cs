@@ -51,8 +51,8 @@ public class ConversationService
                 {
                     Content = c.Messages.OrderByDescending(m => m.SentAt).First().Content,
                     SentAt = c.Messages.OrderByDescending(m => m.SentAt).First().SentAt,
-                    Status = c.Messages.OrderByDescending(m => m.SentAt).First().IsSeen ? "seen" :
-                             c.Messages.OrderByDescending(m => m.SentAt).First().IsReceived ? "delivered" : "sent"
+                    Status = c.Messages.OrderByDescending(m => m.SentAt).First().IsSeen ? "Seen" :
+                             c.Messages.OrderByDescending(m => m.SentAt).First().IsReceived ? "Received" : "Sent"
                 }
                 : null,
             UnreadCount = c.Messages.Count(m => m.ReceiverId == userId && !m.IsSeen)
@@ -69,10 +69,7 @@ public class ConversationService
 
         var conversation = await _conversationRepository.GetConversationByIdAsync(conversationId);
         if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
-        {
-            _logger.LogWarning("Conversation {ConversationId} not found or user {UserId} does not have access", conversationId, userId);
-            return null;
-        }
+            throw new KeyNotFoundException("Conversation not found or you don't have access to it.");
 
         var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
         var otherUser = conversation.User1Id == userId ? conversation.User2 : conversation.User1;
@@ -119,10 +116,7 @@ public class ConversationService
 
         var conversation = await _conversationRepository.GetConversationByIdAsync(conversationId);
         if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
-        {
-            _logger.LogWarning("Conversation {ConversationId} not found or user {UserId} does not have access", conversationId, userId);
-            return;
-        }
+            throw new KeyNotFoundException("Conversation not found or you don't have access to it.");
 
         if (conversation.User1Id == userId)
             conversation.IsDeleted_ForUser_1 = true;
@@ -148,6 +142,9 @@ public class ConversationService
     public async Task<List<SearchResponseDto>> SearchMessagesAsync(int userId, string query)
     {
         _logger.LogInformation("Searching messages for user {UserId} with query '{Query}'", userId, query);
+        if (string.IsNullOrWhiteSpace(query))
+            throw new ArgumentException("Search query is required.");
+
         var messages = await _messageRepository.SearchMessagesAsync(userId, query);
         return messages.Select(m => new SearchResponseDto
         {

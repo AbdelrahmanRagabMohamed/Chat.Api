@@ -8,5 +8,5 @@ public interface IConversationRepository
     Task<Conversation> GetOrCreateConversationAsync(int senderId, int receiverId);
     Task DeleteConversationAsync(int conversationId, int userId);
     Task SaveChangesAsync();
-    Task AddConversationAsync(Conversation conversation); // إضافة الـ Method
+    Task AddConversationAsync(Conversation conversation);
 }

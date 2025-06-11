@@ -1,6 +1,9 @@
-﻿using ChatApi.Data;
+﻿using Chat.Api.Data;
 using ChatApi.Hubs;
+using ChatApi.Interfaces; // تأكد إن الواجهات موجودة
 using ChatApi.Models;
+using ChatApi.Repositories; // تأكد إن الـ Repositories موجودة
+using ChatApi.Services; // تأكد إن الـ Services موجودة
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
-        // Set to Ignore during development to avoid strict errors
         options.SerializerSettings.MissingMemberHandling = MissingMemberHandling.Ignore;
-        // Use CamelCase naming for JSON properties
         options.SerializerSettings.ContractResolver = new DefaultContractResolver
         {
             NamingStrategy = new CamelCaseNamingStrategy()
@@ -81,9 +82,22 @@ builder.Services.AddCors(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// تسجيل الـ Repositories
+builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
+builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+
+// تسجيل الـ Services
+builder.Services.AddScoped<ConversationService>();
+builder.Services.AddScoped<MessageService>();
+
+// تسجيل MemoryCache
+builder.Services.AddMemoryCache();
+
+// تسجيل Logging
+builder.Services.AddLogging();
+
 var app = builder.Build();
 
-// Enable detailed errors in development
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -92,7 +106,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll"); // Ensure CORS is before Authentication
+app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 

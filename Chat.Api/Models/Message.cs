@@ -14,4 +14,5 @@ public class Message
     public bool IsSent { get; set; }    // جديد: هل الرسالة اتبعتت؟
     public bool IsReceived { get; set; } // جديد: هل الرسالة استلمت؟
     public bool IsSeen { get; set; }     // موجود: هل الرسالة اتشافت؟
+
 }

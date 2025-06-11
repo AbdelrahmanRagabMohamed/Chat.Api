@@ -1,4 +1,4 @@
-﻿using ChatApi.Data;
+﻿using Chat.Api.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;

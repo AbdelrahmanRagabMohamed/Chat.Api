@@ -1,5 +1,5 @@
-﻿using Chat.Api.DTOs;
-using ChatApi.Data;
+﻿using Chat.Api.Data;
+using Chat.Api.DTOs;
 using ChatApi.Hubs;
 using ChatApi.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -82,7 +82,6 @@ public class MessagesController : ControllerBase
             });
 
             await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("NewMessageNotification", sender.UserName, dto.Content);
-
             await _hubContext.Clients.Group(userId.ToString()).SendAsync("MessageReceived", message.Id);
         }
 
@@ -197,7 +196,6 @@ public class MessagesController : ControllerBase
         });
     }
 
-
     private async Task<Conversation> GetOrCreateConversation(int senderId, int receiverId)
     {
         var receiver = await _userManager.FindByIdAsync(receiverId.ToString());
@@ -208,26 +206,46 @@ public class MessagesController : ControllerBase
             throw new Exception("Cannot start a conversation with yourself.");
 
         var existingConversation = await _context.Conversations
+            .Include(c => c.Messages)
             .FirstOrDefaultAsync(c =>
                 (c.User1Id == senderId && c.User2Id == receiverId) ||
                 (c.User1Id == receiverId && c.User2Id == senderId));
 
-        if (existingConversation != null)
-            return existingConversation;
-
-        var conversation = new Conversation
+        if (existingConversation != null && existingConversation.IsDeletedFromBoth)
         {
-            User1Id = senderId,
-            User2Id = receiverId,
-            CreatedAt = DateTime.UtcNow,
-            IsDeleted_ForUser_1 = false,
-            IsDeleted_ForUser_2 = false
-        };
+            // مسح المحادثة نهائيًا مع الرسايل
+            _context.Messages.RemoveRange(existingConversation.Messages);
+            _context.Conversations.Remove(existingConversation);
+            await _context.SaveChangesAsync();
 
-        _context.Conversations.Add(conversation);
-        await _context.SaveChangesAsync();
+            // إنشاء محادثة جديدة
+            var newConversation = new Conversation
+            {
+                User1Id = senderId,
+                User2Id = receiverId,
+                CreatedAt = DateTime.UtcNow,
+                IsDeleted_ForUser_1 = false,
+                IsDeleted_ForUser_2 = false
+            };
+            _context.Conversations.Add(newConversation);
+            await _context.SaveChangesAsync();
+            return newConversation;
+        }
+        else if (existingConversation == null)
+        {
+            var newConversation = new Conversation
+            {
+                User1Id = senderId,
+                User2Id = receiverId,
+                CreatedAt = DateTime.UtcNow,
+                IsDeleted_ForUser_1 = false,
+                IsDeleted_ForUser_2 = false
+            };
+            _context.Conversations.Add(newConversation);
+            await _context.SaveChangesAsync();
+            return newConversation;
+        }
 
-        return conversation;
+        return existingConversation;
     }
-
 }

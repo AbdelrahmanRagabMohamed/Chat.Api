@@ -1,7 +1,8 @@
-﻿using Chat.Api.DTOs;
-using ChatApi.Data;
+﻿using Chat.Api.Data;
+using Chat.Api.DTOs;
 using ChatApi.Hubs;
 using ChatApi.Models;
+using ChatApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -19,12 +20,14 @@ namespace ChatApi.Controllers
         private readonly AppDbContext _context;
         private readonly UserManager<User> _userManager;
         private readonly IHubContext<ChatHub> _hubContext;
+        private readonly ConversationService _conversationService;
 
-        public ConversationsController(AppDbContext context, UserManager<User> userManager, IHubContext<ChatHub> hubContext)
+        public ConversationsController(AppDbContext context, UserManager<User> userManager, IHubContext<ChatHub> hubContext, ConversationService conversationService)
         {
             _context = context;
             _userManager = userManager;
             _hubContext = hubContext;
+            _conversationService = conversationService;
         }
 
         [HttpGet]
@@ -141,55 +144,41 @@ namespace ChatApi.Controllers
             }
 
             var conversation = await _context.Conversations
-                .Include(c => c.User1)
-                .Include(c => c.User2)
                 .Include(c => c.Messages)
-                .FirstOrDefaultAsync(c =>
-                    c.Id == conversationId &&
-                    (c.User1Id == userId || c.User2Id == userId)
-                );
+                .FirstOrDefaultAsync(c => c.Id == conversationId && (c.User1Id == userId || c.User2Id == userId));
 
             if (conversation == null)
                 return NotFound("Conversation not found or you don't have access to it.");
 
-            bool bothDeleted = false;
             if (conversation.User1Id == userId)
-            {
                 conversation.IsDeleted_ForUser_1 = true;
-                if (conversation.IsDeleted_ForUser_2)
-                    bothDeleted = true;
-            }
             else
-            {
                 conversation.IsDeleted_ForUser_2 = true;
-                if (conversation.IsDeleted_ForUser_1)
-                    bothDeleted = true;
-            }
-
-            if (bothDeleted)
-            {
-                if (conversation.Messages != null && conversation.Messages.Any())
-                    _context.Messages.RemoveRange(conversation.Messages);
-
-                _context.Conversations.Remove(conversation);
-                await _context.SaveChangesAsync();
-
-                var otherUserId = conversation.User1Id == userId
-                    ? conversation.User2Id
-                    : conversation.User1Id;
-                await _hubContext.Clients.Group(otherUserId.ToString())
-                    .SendAsync("ConversationFullyDeleted", conversationId);
-
-                return Ok("Conversation deleted for current user.");
-            }
 
             await _context.SaveChangesAsync();
 
-            var otherUserIdForNotification = conversation.User1Id == userId
-                ? conversation.User2Id
-                : conversation.User1Id;
-            await _hubContext.Clients.Group(otherUserIdForNotification.ToString())
-                .SendAsync("ConversationDeletedByOther", conversationId);
+            if (conversation.IsDeletedFromBoth)
+            {
+                _context.Messages.RemoveRange(conversation.Messages);
+                _context.Conversations.Remove(conversation);
+                await _context.SaveChangesAsync();
+
+                var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+                if (ChatHub.IsUserOnline(otherUserId))
+                {
+                    await _hubContext.Clients.Group(otherUserId.ToString())
+                        .SendAsync("ConversationFullyDeleted", conversationId);
+                }
+            }
+            else
+            {
+                var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+                if (ChatHub.IsUserOnline(otherUserId))
+                {
+                    await _hubContext.Clients.Group(otherUserId.ToString())
+                        .SendAsync("ConversationDeletedByOther", conversationId);
+                }
+            }
 
             return Ok("Conversation deleted for current user.");
         }

@@ -5,20 +5,23 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatApi.Repositories;
+
 public class ConversationRepository : IConversationRepository
 {
     private readonly AppDbContext _context;
     private readonly UserManager<User> _userManager;
+    private readonly ILogger<ConversationRepository> _logger;
 
-    public ConversationRepository(AppDbContext context, UserManager<User> userManager)
+    public ConversationRepository(AppDbContext context, UserManager<User> userManager, ILogger<ConversationRepository> logger)
     {
         _context = context;
         _userManager = userManager;
+        _logger = logger;
     }
 
     public async Task<List<Conversation>> GetUserConversationsAsync(int userId)
     {
-        return await _context.Conversations
+        var conversations = await _context.Conversations
             .Include(c => c.User1)
             .Include(c => c.User2)
             .Include(c => c.Messages)
@@ -28,16 +31,20 @@ public class ConversationRepository : IConversationRepository
                        !(c.User2Id == userId && c.IsDeleted_ForUser_2))
             .AsNoTracking()
             .ToListAsync();
+        _logger.LogInformation("Fetched {Count} conversations for user {UserId}", conversations.Count, userId);
+        return conversations;
     }
 
     public async Task<Conversation> GetConversationByIdAsync(int conversationId)
     {
-        return await _context.Conversations
+        var conversation = await _context.Conversations
             .Include(c => c.User1)
             .Include(c => c.User2)
             .Include(c => c.Messages)
             .ThenInclude(m => m.Sender)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
+        _logger.LogInformation("Conversation {ConversationId} retrieved: {Result}", conversationId, conversation != null);
+        return conversation;
     }
 
     public async Task<Conversation> GetOrCreateConversationAsync(int senderId, int receiverId)
@@ -68,6 +75,7 @@ public class ConversationRepository : IConversationRepository
 
         _context.Conversations.Add(conversation);
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Created new conversation {ConversationId} for users {User1Id} and {User2Id}", conversation.Id, senderId, receiverId);
 
         return conversation;
     }
@@ -77,6 +85,7 @@ public class ConversationRepository : IConversationRepository
         var conversation = await _context.Conversations
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == conversationId);
+        _logger.LogInformation("Conversation {ConversationId} found for deletion: {Result}", conversationId, conversation != null);
 
         if (conversation == null) return;
 
@@ -92,6 +101,7 @@ public class ConversationRepository : IConversationRepository
         }
 
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Deleted conversation {ConversationId} for user {UserId}", conversationId, userId);
     }
 
     public async Task SaveChangesAsync()
@@ -103,5 +113,6 @@ public class ConversationRepository : IConversationRepository
     {
         _context.Conversations.Add(conversation);
         await _context.SaveChangesAsync();
+        _logger.LogInformation("Added conversation {ConversationId}", conversation.Id);
     }
 }

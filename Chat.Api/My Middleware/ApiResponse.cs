@@ -26,8 +26,8 @@ public class ApiResponse
             401 => "You Are Not Authorized",
             404 => "Resource Not Found ",
             500 => "Internal Server Error",
-
             _ => null     // _ => Default Value
+
 
         };
 

@@ -68,8 +68,12 @@ public class ConversationService
         _logger.LogInformation("Opening conversation {ConversationId} for user {UserId}", conversationId, userId);
 
         var conversation = await _conversationRepository.GetConversationByIdAsync(conversationId);
-        if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
-            throw new KeyNotFoundException("Conversation not found or you don't have access to it.");
+        _logger.LogInformation("Conversation {ConversationId} found: {Result}, User1Id: {User1Id}, User2Id: {User2Id}",
+            conversationId, conversation != null, conversation?.User1Id, conversation?.User2Id);
+        if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId) ||
+            (conversation.User1Id == userId && conversation.IsDeleted_ForUser_1) ||
+            (conversation.User2Id == userId && conversation.IsDeleted_ForUser_2))
+            return null;
 
         var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
         var otherUser = conversation.User1Id == userId ? conversation.User2 : conversation.User1;
@@ -115,6 +119,8 @@ public class ConversationService
         _logger.LogInformation("Deleting conversation {ConversationId} for user {UserId}", conversationId, userId);
 
         var conversation = await _conversationRepository.GetConversationByIdAsync(conversationId);
+        _logger.LogInformation("Conversation {ConversationId} found: {Result}, User1Id: {User1Id}, User2Id: {User2Id}",
+            conversationId, conversation != null, conversation?.User1Id, conversation?.User2Id);
         if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
             throw new KeyNotFoundException("Conversation not found or you don't have access to it.");
 

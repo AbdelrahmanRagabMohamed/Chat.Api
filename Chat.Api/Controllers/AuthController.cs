@@ -1,5 +1,4 @@
 ﻿using Chat.Api.DTOs;
-using ChatApi.Errors;
 using ChatApi.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;

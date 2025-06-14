@@ -1,6 +1,5 @@
 ﻿using Chat.Api.DTOs;
 using Chat.Api.Interfaces;
-using ChatApi.Errors;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;

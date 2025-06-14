@@ -1,4 +1,5 @@
 ﻿using Chat.Api.DTOs;
+using Chat.Api.Interfaces;
 using ChatApi.Hubs;
 using ChatApi.Interfaces;
 using Microsoft.AspNetCore.SignalR;
@@ -6,7 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace ChatApi.Services;
 
-public class ConversationService
+public class ConversationService : IConversationService
 {
     private readonly IConversationRepository _conversationRepository;
     private readonly IMessageRepository _messageRepository;

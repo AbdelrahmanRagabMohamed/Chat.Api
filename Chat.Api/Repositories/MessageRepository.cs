@@ -21,6 +21,11 @@ public class MessageRepository : IMessageRepository
             .ToListAsync();
     }
 
+    public async Task CreateMessageAsync(Message message)
+    {
+        await _context.Messages.AddAsync(message);
+    }
+
     public async Task<Message> GetMessageByIdAsync(int messageId)
     {
         return await _context.Messages

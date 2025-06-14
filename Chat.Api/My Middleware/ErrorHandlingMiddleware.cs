@@ -55,7 +55,7 @@ public class ErrorHandlingMiddleware
 
 public static class ErrorHandlingMiddlewareExtensions
 {
-    public static IApplicationBuilder UseErrorHandling(this IApplicationBuilder builder)
+    public static IApplicationBuilder ErrorHandlingMiddleware(this IApplicationBuilder builder)
     {
         return builder.UseMiddleware<ErrorHandlingMiddleware>();
     }

@@ -2,6 +2,8 @@
 public interface IMessageRepository
 {
     Task<List<Message>> GetMessagesByConversationIdAsync(int conversationId);
+    Task CreateMessageAsync(Message message);
+
     Task<Message> GetMessageByIdAsync(int messageId);
     Task AddMessageAsync(Message message);
     Task UpdateMessageAsync(Message message);

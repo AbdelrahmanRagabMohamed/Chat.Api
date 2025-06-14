@@ -1,5 +1,4 @@
-﻿
-namespace ChatApi.Errors;
+﻿namespace Chat.Api.DTOs;
 
 public class ApiResponse
 {

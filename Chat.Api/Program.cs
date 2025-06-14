@@ -1,9 +1,13 @@
-﻿using Chat.Api.Data;
+﻿using AspNetCoreRateLimit;
+using Chat.Api.Data;
+using Chat.Api.Interfaces;
+using Chat.Api.MyMiddleware;
 using ChatApi.Hubs;
 using ChatApi.Interfaces;
 using ChatApi.Models;
 using ChatApi.Repositories;
 using ChatApi.Services;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +18,7 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add Controllers with JSON settings
 builder.Services.AddControllers()
     .AddNewtonsoftJson(options =>
     {
@@ -24,15 +29,19 @@ builder.Services.AddControllers()
         };
     });
 
+// SignalR
 builder.Services.AddSignalR();
 
+// DbContext
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// Identity
 builder.Services.AddIdentity<User, IdentityRole<int>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
+// Authentication
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -67,37 +76,51 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-builder.Services.AddAuthorization();
+// CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", builder =>
+    options.AddPolicy("AllowAll", policy =>
     {
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader()
-               .WithExposedHeaders("content-length");
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .WithExposedHeaders("content-length");
     });
 });
 
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// تسجيل الـ Repositories
+// ====== Dependency Injection ======
+// Repositories
 builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
 builder.Services.AddScoped<IMessageRepository, MessageRepository>();
 
-// تسجيل الـ Services
-builder.Services.AddScoped<ConversationService>();
-builder.Services.AddScoped<MessageService>();
+// Services
+builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
 
-// تسجيل MemoryCache
+// Memory Cache
 builder.Services.AddMemoryCache();
 
-// تسجيل Logging
+// Rate Limiting
+builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
+builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+builder.Services.AddInMemoryRateLimiting();
+
+// Logging
 builder.Services.AddLogging();
+
+//FluentValidation
+builder.Services.AddFluentValidation(config =>
+{
+    config.RegisterValidatorsFromAssemblyContaining<Program>();
+});
 
 var app = builder.Build();
 
+// ====== Middleware Pipeline ======
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -107,8 +130,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
+app.ErrorHandlingMiddleware();
+app.UseIpRateLimiting(); // Apply rate limiting middleware
 app.UseAuthentication();
 app.UseAuthorization();
+
 
 app.MapControllers();
 app.MapHub<ChatHub>("/chatHub");

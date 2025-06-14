@@ -1,92 +1,86 @@
 ﻿using Chat.Api.DTOs;
+using Chat.Api.Interfaces;
 using ChatApi.Hubs;
 using ChatApi.Interfaces;
 using ChatApi.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace ChatApi.Services;
 
-public class MessageService
+public class MessageService : IMessageService
 {
     private readonly IConversationRepository _conversationRepository;
     private readonly IMessageRepository _messageRepository;
     private readonly IHubContext<ChatHub> _hubContext;
     private readonly UserManager<User> _userManager;
     private readonly ILogger<MessageService> _logger;
+    private readonly IMemoryCache _cache;
 
     public MessageService(
         IConversationRepository conversationRepository,
         IMessageRepository messageRepository,
         IHubContext<ChatHub> hubContext,
         UserManager<User> userManager,
-        ILogger<MessageService> logger)
+        ILogger<MessageService> logger,
+         IMemoryCache cache)
     {
         _conversationRepository = conversationRepository;
         _messageRepository = messageRepository;
         _hubContext = hubContext;
         _userManager = userManager;
         _logger = logger;
+        _cache = cache;
     }
 
-    public async Task<SendMessageResponseDto> SendMessageAsync(int senderId, int receiverId, string content)
+    public async Task<SendMessageResponseDto> SendMessageAsync(int senderId, SendMessageDto dto)
     {
-        var conversation = await GetOrCreateConversationAsync(senderId, receiverId);
-        var otherUserId = conversation.User1Id == senderId ? conversation.User2Id : conversation.User1Id;
-
-        var receiver = await _userManager.FindByIdAsync(otherUserId.ToString());
-        if (receiver == null)
-            throw new Exception($"Receiver with ID {otherUserId} does not exist.");
+        var conversation = await _conversationRepository.GetOrCreateConversationAsync(senderId, dto.ReceiverId);
 
         var message = new Message
         {
-            ConversationId = conversation.Id,
             SenderId = senderId,
-            ReceiverId = otherUserId,
-            Content = content,
+            ReceiverId = dto.ReceiverId,
+            ConversationId = conversation.Id,
+            Content = dto.Content,
             SentAt = DateTime.UtcNow,
             IsSent = true,
-            IsReceived = ChatHub.IsUserOnline(otherUserId),
+            IsReceived = false,
             IsSeen = false
         };
 
-        await _messageRepository.AddMessageAsync(message);
+        await _messageRepository.CreateMessageAsync(message);
+        await _conversationRepository.SaveChangesAsync();
 
-        var sender = await _userManager.FindByIdAsync(senderId.ToString());
-        if (ChatHub.IsUserOnline(otherUserId))
+        var messageDto = new MessageResponseDto
         {
-            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("ReceiveMessage", new
-            {
-                Id = message.Id,
-                ConversationId = message.ConversationId,
-                SenderId = message.SenderId,
-                SenderName = sender?.UserName,
-                ReceiverId = otherUserId,
-                Content = message.Content,
-                SentAt = message.SentAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                IsSent = message.IsSent,
-                IsReceived = message.IsReceived,
-                IsSeen = message.IsSeen
-            });
+            Id = message.Id,
+            Content = message.Content,
+            SentAt = message.SentAt,
+            IsSent = message.IsSent,
+            IsReceived = message.IsReceived,
+            IsSeen = message.IsSeen
+        };
 
-            await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("NewMessageNotification", sender?.UserName, content);
-            await _hubContext.Clients.Group(senderId.ToString()).SendAsync("MessageReceived", message.Id);
+        var responseDto = new SendMessageResponseDto
+        {
+            ConversationId = conversation.Id,
+            SenderId = senderId,
+            Message = messageDto
+        };
+
+        // إرسال الرسالة للطرف التاني
+        if (ChatHub.IsUserOnline(dto.ReceiverId))
+        {
+            await _hubContext.Clients.Group(dto.ReceiverId.ToString()).SendAsync("ReceiveMessage", responseDto);
         }
 
-        return new SendMessageResponseDto
-        {
-            ConversationId = message.ConversationId,
-            SenderId = message.SenderId,
-            Message = new MessageResponseDto
-            {
-                Id = message.Id,
-                Content = message.Content,
-                SentAt = message.SentAt,
-                IsSent = message.IsSent,
-                IsReceived = message.IsReceived,
-                IsSeen = message.IsSeen
-            }
-        };
+        // تحديث الكاش (لو بتحب تحدث الكاش بعد الإرسال)
+        _cache.Remove($"Conversations_{senderId}");
+        _cache.Remove($"Conversations_{dto.ReceiverId}");
+
+        return responseDto;
     }
 
     public async Task<MessageResponseDto> EditMessageAsync(int messageId, int userId, string newContent)

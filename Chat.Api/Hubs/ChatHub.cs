@@ -1,8 +1,11 @@
 ﻿using Chat.Api.Data;
+using Chat.Api.DTOs;
+using ChatApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+
 
 namespace ChatApi.Hubs;
 
@@ -93,27 +96,23 @@ public class ChatHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-
-    public async Task SendMessage(int conversationId, string content)
+    public async Task SendMessage(int receiverId, string content)
     {
         var userId = int.Parse(Context.User.FindFirst(ClaimTypes.NameIdentifier).Value);
-        var conversation = await _context.Conversations
-            .FirstOrDefaultAsync(c => c.Id == conversationId);
 
-        if (conversation == null) return;
-
-        var sender = await _context.Users.FindAsync(userId);
-        var message = new
+        var dto = new SendMessageDto
         {
-            ConversationId = conversationId,
-            SenderId = userId,
-            SenderName = sender.UserName,
-            Content = content,
-            SentAt = DateTime.UtcNow
+            ReceiverId = receiverId,
+            Content = content
         };
 
-        var otherUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
-        await _hubContext.Clients.Group(otherUserId.ToString()).SendAsync("ReceiveMessage", message);
+        var messageService = Context.GetHttpContext().RequestServices.GetRequiredService<MessageService>();
+        var response = await messageService.SendMessageAsync(userId, dto);
+
+        // إرسال الرسالة لنفس المرسل عشان تظهر عنده على طول
+        await Clients.Group(userId.ToString()).SendAsync("ReceiveMessage", response);
+
+        // الطرف التاني بيتم إخطارهم بالفعل من داخل MessageService
     }
 
 

@@ -1,5 +1,6 @@
 ﻿using Chat.Api.DTOs;
-using ChatApi.Services;
+using Chat.Api.Interfaces;
+using ChatApi.Errors;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -11,29 +12,30 @@ namespace ChatApi.Controllers;
 [Route("api/[controller]")]
 public class MessagesController : ControllerBase
 {
-    private readonly MessageService _messageService;
+    private readonly IMessageService _messageService;
     private readonly ILogger<MessagesController> _logger;
 
-    public MessagesController(MessageService messageService, ILogger<MessagesController> logger)
+    public MessagesController(IMessageService messageService, ILogger<MessagesController> logger)
     {
         _messageService = messageService;
         _logger = logger;
     }
 
+
+
     [HttpPost("send")]
     public async Task<IActionResult> SendMessage([FromBody] SendMessageDto dto)
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-        _logger.LogInformation("User {UserId} sending message to {ReceiverId}", userId, dto.ReceiverId);
         try
         {
-            var response = await _messageService.SendMessageAsync(userId, dto.ReceiverId, dto.Content);
-            return Ok(response);
+            int senderId = int.Parse(User.FindFirst("id")!.Value);
+            var result = await _messageService.SendMessageAsync(senderId, dto);
+            return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending message from user {UserId}", userId);
-            return StatusCode(500, "An error occurred while sending the message.");
+            _logger.LogError(ex, "Error sending message");
+            return StatusCode(500, new ApiResponse(500, "Failed to send message"));
         }
     }
 
@@ -44,7 +46,7 @@ public class MessagesController : ControllerBase
         _logger.LogInformation("User {UserId} editing message {MessageId}", userId, messageId);
         try
         {
-            var response = await _messageService.EditMessageAsync(messageId, userId, dto.Content);
+            var response = await _messageService.EditMessageAsync(messageId, userId, dto.NewContent);
             return Ok(response);
         }
         catch (Exception ex)

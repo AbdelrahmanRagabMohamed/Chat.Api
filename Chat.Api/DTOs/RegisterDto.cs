@@ -1,4 +1,4 @@
-﻿namespace ChatApi.Models
+﻿namespace Chat.Api.DTOs
 {
     public class RegisterDto
     {

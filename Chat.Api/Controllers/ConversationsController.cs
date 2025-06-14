@@ -1,6 +1,6 @@
 ﻿using Chat.Api.Data;
 using Chat.Api.DTOs;
-using ChatApi.Services;
+using Chat.Api.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,16 +14,15 @@ namespace ChatApi.Controllers;
 public class ConversationsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly ConversationService _conversationService;
+    private readonly IConversationService _conversationService;
     private readonly ILogger<ConversationsController> _logger;
 
-    public ConversationsController(AppDbContext context, ConversationService conversationService, ILogger<ConversationsController> logger)
+    public ConversationsController(AppDbContext context, IConversationService conversationService, ILogger<ConversationsController> logger)
     {
         _context = context;
         _conversationService = conversationService;
         _logger = logger;
     }
-
 
     [HttpGet]
     public async Task<IActionResult> GetConversations()

@@ -2,6 +2,7 @@
 
 public class EditMessageDto
 {
-    public string Content { get; set; }
+    public int MessageId { get; set; }
+    public string NewContent { get; set; }
 
 }

@@ -27,16 +27,23 @@ public class MessagesController : ControllerBase
     {
         try
         {
-            int senderId = int.Parse(User.FindFirst("id")!.Value);
+            var idClaim = User.FindFirst("id"); // أو "nameid" حسب التوكن عندك
+
+            if (idClaim == null)
+                return Unauthorized(new { message = "User ID claim is missing." });
+
+            int senderId = int.Parse(idClaim.Value);
+
             var result = await _messageService.SendMessageAsync(senderId, dto);
             return Ok(result);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending message");
-            return StatusCode(500, new ApiResponse(500, "Failed to send message"));
+            return StatusCode(500, "Failed to Send Message");
         }
     }
+
 
     [HttpPut("edit/{messageId}")]
     public async Task<IActionResult> EditMessage(int messageId, [FromBody] EditMessageDto dto)

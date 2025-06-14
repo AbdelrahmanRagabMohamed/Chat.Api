@@ -110,6 +110,9 @@ namespace ChatApi.Controllers
             return Ok(exists);
         }
 
+
+
+
         // Internal method for checking email existence
         private async Task<bool> CheckEmailExistsInternal(string email)
         {
